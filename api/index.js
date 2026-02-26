@@ -11,7 +11,7 @@ const path = require("path");
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
+app.use("/static", express.static(path.join(process.cwd(), "static")));
 /* =========================
    ENTITIES
 ========================= */
