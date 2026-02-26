@@ -10,8 +10,8 @@ const path = require("path");
 const { Redis } = require("@upstash/redis");
 
 const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL ,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN , 
+  url: process.env.UPSTASH_REDIS_REST_URL  ,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN ,
 });
 
 // Middleware
@@ -178,18 +178,17 @@ app.get("/", (req, res) => {
 app.get("/products", async (req, res) => {
   await initDB();
   //const repo = AppDataSource.getRepository("Product");
-  //let products = await redis.get("products"); // = await repo.find();
+  let products = null; // = await repo.find();
   try {
-    let products = await redis.get("products");
+
     //  try {
     // 1️⃣ Check cache first
-    //const cached = await redis.get("products");
+    const cached = await redis.get("products");
 
-    if (products) {
+    if (cached) {
       console.log("Serving from Redis cache");
       //return res.json(cached);
-      //products = cached;
-      products = JSON.parse(products);
+      products = cached;
     }
     else {
     // 2️⃣ If not cached → query DB
@@ -197,12 +196,11 @@ app.get("/products", async (req, res) => {
      products = await repo.find();
 
     // 3️⃣ Store in Redis (TTL 60 seconds)
-    await redis.set("products", JSON.stringify(products), { ex: 60 });
+    await redis.set("products", products, { ex: 60 });
 
     console.log("Serving from database");
     //res.json(products);
     }
-    if (typeof products === "string") products = JSON.parse(products);
  // } catch (err) {
  //   console.error("Redis error:", err);
  //   res.status(500).json({ error: "Internal server error" });
@@ -447,7 +445,7 @@ try {
 
 /* =========================
    EXPORT FOR VERCEL
-========================= 
+========================= */
 if (process.env.NODE_ENV !== "production") {
   const port = process.env.PORT || 3000;
   initDB().then(() => {
@@ -456,5 +454,5 @@ if (process.env.NODE_ENV !== "production") {
     });
   });
 }
-*/
+
 module.exports = app;
