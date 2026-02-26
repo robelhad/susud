@@ -273,27 +273,142 @@ app.get("/products", async (req, res) => {
       res.status(500).send("Error fetching products");
     }
 });
+// Cart route: Display current cart items from sessionStorage.
+app.get("/cart", (req, res) => {
+  const content = `
+    <h1>Your Cart</h1>
+    <div id="cartContainer"></div>
+    <a class="btn btn-primary mt-3" href="/checkout">Proceed to Checkout</a>
+    <script>
+      function renderCart() {
+        let cart = sessionStorage.getItem('cart');
+        let container = document.getElementById('cartContainer');
+        if (!cart || JSON.parse(cart).length === 0) {
+          container.innerHTML = '<p>Your cart is empty.</p>';
+          return;
+        }
+        cart = JSON.parse(cart);
+        let html = '<ul class="list-group">';
+        cart.forEach(item => {
+          html += '<li class="list-group-item d-flex justify-content-between align-items-center">' +
+                    item.name + ' - $' + item.price.toFixed(2) + ' x ' + item.quantity +
+                  '</li>';
+        });
+        html += '</ul>';
+        container.innerHTML = html;
+      }
+      document.addEventListener('DOMContentLoaded', renderCart);
+    </script>
+  `;
+  res.send(renderPage("Your Cart - Susu's Macaroon Market", content));
+});
+
+// Checkout page: Show order form and populate cart details from sessionStorage.
+app.get("/checkout", (req, res) => {
+  const content = `
+    <h1>Checkout</h1>
+    <div id="cartSummary"></div>
+    <form method="POST" action="/checkout" onsubmit="return prepareOrder()">
+      <div class="form-group">
+        <label for="name">Name:</label>
+        <input type="text" class="form-control" id="name" name="name" required>
+      </div>
+      <div class="form-group">
+        <label for="address">Address:</label>
+        <textarea class="form-control" id="address" name="address" rows="3" required></textarea>
+      </div>
+      <input type="hidden" id="cartData" name="cartData">
+      <button type="submit" class="btn btn-success">Place Order</button>
+    </form>
+    <script>
+      function renderCartSummary() {
+        let cart = sessionStorage.getItem('cart');
+        let summary = document.getElementById('cartSummary');
+        if (!cart || JSON.parse(cart).length === 0) {
+          summary.innerHTML = '<p>Your cart is empty.</p>';
+          return;
+        }
+        cart = JSON.parse(cart);
+        let html = '<ul class="list-group mb-3">';
+        let total = 0;
+        cart.forEach(item => {
+          total += item.price * item.quantity;
+          html += '<li class="list-group-item d-flex justify-content-between align-items-center">' +
+                    item.name + ' - $' + item.price.toFixed(2) + ' x ' + item.quantity +
+                  '</li>';
+        });
+        html += '</ul>';
+        html += '<h4>Total: $' + total.toFixed(2) + '</h4>';
+        summary.innerHTML = html;
+      }
+      
+      function prepareOrder() {
+        let cart = sessionStorage.getItem('cart');
+        if (!cart || JSON.parse(cart).length === 0) {
+          alert('Your cart is empty!');
+          return false;
+        }
+        document.getElementById('cartData').value = cart;
+        return true;
+      }
+      
+      document.addEventListener('DOMContentLoaded', renderCartSummary);
+    </script>
+  `;
+  res.send(renderPage("Checkout - Susu's Macaroon Market", content));
+});
+
 
 app.post("/checkout", async (req, res) => {
   await initDB();
-  const { name, address, cartItems } = req.body;
+  const { name, address, cartData } = req.body;
+
+  let cartItems;
+  try {
+    cartItems = JSON.parse(cartData);
+  } catch (error) {
+    return res.status(400).send("Invalid cart data");
+  }
 
   const total = cartItems.reduce(
     (sum, item) => sum + item.productPrice * item.quantity,
     0
   );
-
+try {
   const repo = AppDataSource.getRepository("Order");
 
   const order = {
     name,
     address,
     total,
-    orderItems: cartItems
+    orderItems: cartItems.map(item => ({
+        productName: item.name,
+        productPrice: item.price,
+        quantity: item.quantity
+      }))
   };
 
   const saved = await repo.save(order);
-  res.json({ success: true, orderId: saved.id });
+     const content = `
+      <div class="text-center">
+        <h1>Thank you for your order!</h1>
+        <p>Your order ID is ${saved.id}.</p>
+        <p>We appreciate your business. Your delicious macaroons are on their way!</p>
+        <a class="btn btn-primary" href="/" onclick="clearCart()">Back to Home</a>
+      </div>
+      <script>
+        function clearCart() {
+          sessionStorage.removeItem('cart');
+        }
+        clearCart();
+      </script>
+    `;
+  //res.json({ success: true, orderId: saved.id });
+  res.send(renderPage("Order Confirmation - Susu's Macaroon Market", content));
+  } catch (error) {
+    console.error("Error processing order:", error);
+    res.status(500).send("Error processing order");
+  }
 });
 
 /* =========================
