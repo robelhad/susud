@@ -5,6 +5,8 @@ const express = require("express");
 const { DataSource, EntitySchema } = require("typeorm");
 
 const app = express();
+const fs = require("fs");
+const path = require("path");
 
 // Middleware
 app.use(express.json());
@@ -89,16 +91,187 @@ async function initDB() {
 /* =========================
    ROUTES
 ========================= */
+function renderPage(title, content) {
+  return `
+  <!DOCTYPE html>
+  <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+      <title>${title}</title>
+      <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+      <style>
+        body { padding-top: 50px; }
+        .container { max-width: 800px; }
+        /* Fireworks animation styles */
+        .fireworks-container {
+          position: absolute;
+          pointer-events: none;
+        }
+        .firework {
+          position: absolute;
+          width: 8px;
+          height: 8px;
+          background: gold;
+          border-radius: 50%;
+          opacity: 1;
+          animation: firework-animation 0.8s ease-out forwards;
+        }
+        @keyframes firework-animation {
+          0% { transform: translate(0, 0); opacity: 1; }
+          100% { transform: translate(var(--dx), var(--dy)); opacity: 0; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        ${content}
+      </div>
+      <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
+      <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    </body>
+  </html>
+  `;
+}
 
+const localHeroPath = path.join(process.cwd(), "static", "shop.jpg");
+// Construct the hero image URL using AWS S3 environment variables.
+const heroImageUrl = fs.existsSync(localHeroPath) 
+? "/static/shop.jpg" 
+: `https://${process.env.S3_BUCKET}.s3.${process.env.S3_REGION}.amazonaws.com/shop.jpg`;
+console.log(heroImageUrl);
 app.get("/", (req, res) => {
-  res.send("Susu's Macaroon Market API is running 🚀");
+    const content = `
+    <div class="hero-banner" style="
+      position: relative;
+      background: url('${heroImageUrl}') no-repeat center center;
+      background-size: cover;
+      height: 500px;
+    ">
+      <div style="
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5);
+      ">
+        <div class="d-flex h-100 align-items-center justify-content-center">
+          <div class="text-center text-white">
+            <h1 class="display-3">Welcome to Susu's Macaroon Market!</h1>
+            <p class="lead">Delicious macaroons made with love.</p>
+            <a class="btn btn-primary btn-lg" href="/products" role="button">View Our Products</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  res.send(renderPage("Susu's Macaroon Market", content));
 });
 
 app.get("/products", async (req, res) => {
   await initDB();
-  const repo = AppDataSource.getRepository("Product");
-  const products = await repo.find();
-  res.json(products);
+  //const repo = AppDataSource.getRepository("Product");
+  //const products = await repo.find();
+  try {
+      const productRepository = AppDataSource.getRepository("Product");
+      const products = await productRepository.find();
+  
+      // Header with a shopping cart icon and a "Cart" button.
+      let html = `
+        <div class="d-flex justify-content-end align-items-center mb-3" style="position: relative;">
+          <button class="btn btn-secondary" onclick="location.href='/cart'" id="cartButton">
+            <span id="cartIcon"><i class="fas fa-shopping-cart"></i></span> Cart (<span id="cartCount">0</span>)
+          </button>
+        </div>
+        <h1 class="mb-4">Our Products</h1>
+        <div class="list-group">
+      `;
+  
+      products.forEach(product => {
+        // Construct the product image URL using S3 environment variables.
+        const localPath = path.join(process.cwd(), "static", product.image);
+        const imageUrl = fs.existsSync(localPath) ? `/static/${product.image}` // Serve from local folder 
+        : `https://${process.env.S3_BUCKET}.s3.${process.env.S3_REGION}.amazonaws.com/${product.image}`;
+        html += `
+          <div class="list-group-item d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center">
+              <img src="${imageUrl}" alt="${product.name}" style="width:250px; height:250px; object-fit:cover; margin-right:15px;" />
+              <div>
+                <h5 class="mb-1">${product.name}</h5>
+                <p class="mb-1">$${product.price.toFixed(2)}</p>
+              </div>
+            </div>
+            <button class="btn btn-success" onclick="addToCart(${product.id}, '${product.name}', ${product.price})">Add to Cart</button>
+          </div>`;
+      });
+      html += `</div>
+        <!-- Button at the bottom to go to the shopping cart -->
+        <div class="text-center mt-4">
+          <button class="btn btn-primary" onclick="location.href='/cart'">Go to Cart</button>
+        </div>
+        <script>
+          function addToCart(id, name, price) {
+            let cart = sessionStorage.getItem('cart');
+            cart = cart ? JSON.parse(cart) : [];
+            const existingItem = cart.find(item => item.id === id);
+            if (existingItem) {
+              existingItem.quantity += 1;
+            } else {
+              cart.push({ id, name, price, quantity: 1 });
+            }
+            sessionStorage.setItem('cart', JSON.stringify(cart));
+            updateCartCount();
+            showFireworks();
+          }
+  
+          function updateCartCount() {
+            let cart = sessionStorage.getItem('cart');
+            cart = cart ? JSON.parse(cart) : [];
+            const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+            document.getElementById('cartCount').innerText = totalItems;
+          }
+          
+          // Function to create a fireworks effect around the cart button.
+          function showFireworks() {
+            const cartButton = document.getElementById('cartButton');
+            const rect = cartButton.getBoundingClientRect();
+            // Create a container for fireworks positioned over the button.
+            const container = document.createElement('div');
+            container.className = 'fireworks-container';
+            container.style.left = rect.left + 'px';
+            container.style.top = rect.top + 'px';
+            container.style.width = rect.width + 'px';
+            container.style.height = rect.height + 'px';
+            document.body.appendChild(container);
+            
+            // Create multiple sparkles.
+            for (let i = 0; i < 10; i++) {
+              const sparkle = document.createElement('div');
+              sparkle.className = 'firework';
+              // Random angle and distance.
+              const angle = Math.random() * 2 * Math.PI;
+              const distance = Math.random() * 30;
+              const dx = Math.cos(angle) * distance;
+              const dy = Math.sin(angle) * distance;
+              sparkle.style.setProperty('--dx', dx + 'px');
+              sparkle.style.setProperty('--dy', dy + 'px');
+              container.appendChild(sparkle);
+            }
+            // Remove the container after the animation completes.
+            setTimeout(() => {
+              container.remove();
+            }, 1000);
+          }
+  
+          document.addEventListener('DOMContentLoaded', updateCartCount);
+        </script>
+      `;
+      res.send(renderPage("Products - Susu's Macaroon Market", html));
+    } catch (error) {
+      console.error("Error fetching products:", error);
+      res.status(500).send("Error fetching products");
+    }
 });
 
 app.post("/checkout", async (req, res) => {
