@@ -7,6 +7,12 @@ const { DataSource, EntitySchema } = require("typeorm");
 const app = express();
 const fs = require("fs");
 const path = require("path");
+const { Redis } = require("@upstash/redis");
+
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL || "https://pure-moccasin-38221.upstash.io" ,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN || "AZVNAAIncDFiY2I0ODI0NGRmYTE0ODhjOTMwYzU0YTlhZGUxN2NkNnAxMzgyMjE",
+});
 
 // Middleware
 app.use(express.json());
@@ -172,10 +178,35 @@ app.get("/", (req, res) => {
 app.get("/products", async (req, res) => {
   await initDB();
   //const repo = AppDataSource.getRepository("Product");
-  //const products = await repo.find();
+  let products; // = await repo.find();
   try {
-      const productRepository = AppDataSource.getRepository("Product");
-      const products = await productRepository.find();
+
+    //  try {
+    // 1️⃣ Check cache first
+    const cached = await redis.get("products");
+
+    if (cached) {
+      console.log("Serving from Redis cache");
+      //return res.json(cached);
+      products = cached;
+    }
+    else {
+    // 2️⃣ If not cached → query DB
+    const repo = AppDataSource.getRepository("Product");
+     products = await repo.find();
+
+    // 3️⃣ Store in Redis (TTL 60 seconds)
+    await redis.set("products", products, { ex: 60 });
+
+    console.log("Serving from database");
+    //res.json(products);
+    }
+ // } catch (err) {
+ //   console.error("Redis error:", err);
+ //   res.status(500).json({ error: "Internal server error" });
+ // }
+      //const productRepository = AppDataSource.getRepository("Product");
+      //const products = await productRepository.find();
   
       // Header with a shopping cart icon and a "Cart" button.
       let html = `
@@ -404,6 +435,7 @@ try {
       </script>
     `;
   //res.json({ success: true, orderId: saved.id });
+  await redis.del("products");
   res.send(renderPage("Order Confirmation - Susu's Macaroon Market", content));
   } catch (error) {
     console.error("Error processing order:", error);
