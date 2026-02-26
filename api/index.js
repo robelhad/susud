@@ -196,7 +196,7 @@ app.get("/products", async (req, res) => {
      products = await repo.find();
 
     // 3️⃣ Store in Redis (TTL 60 seconds)
-    await redis.set("products", products, { ex: 60 });
+    await redis.set("products", products, { ex: 300 });
 
     console.log("Serving from database");
     //res.json(products);
